@@ -106,15 +106,6 @@ fi
 # Reuse an existing libvirt domain after a CloudLab reboot. Installation is
 # performed only when the domain has not yet been defined.
 if ! sudo virsh dominfo "${VM_NAME}" >/dev/null 2>&1; then
-    # Check capacity only before creating the VM. A normal reboot must not fail
-    # merely because the existing sparse disk has consumed some blockstore.
-    AVAILABLE_BYTES="$(df --output=avail -B1 "${WORK_DIR}" | tail -n 1)"
-    MINIMUM_BYTES="$((50 * 1024 * 1024 * 1024))"
-    if (( AVAILABLE_BYTES < MINIMUM_BYTES )); then
-        echo "ERROR: ${WORK_DIR} has less than 50 GiB available" >&2
-        exit 1
-    fi
-
     sudo rm -f "${VM_DISK}" "${SEED_ISO}"
 
     # Use a fixed artifact-evaluation login to keep console access simple.
