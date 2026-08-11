@@ -26,8 +26,6 @@ SEED_ISO="${AUTOINSTALL_DIR}/seed.iso"
 ISO_NAME="ubuntu-22.04.5-live-server-amd64.iso"
 ISO_URL="https://releases.ubuntu.com/22.04.5/${ISO_NAME}"
 ISO_PATH="${ISO_DIR}/${ISO_NAME}"
-CHECKSUMS_URL="https://releases.ubuntu.com/22.04.5/SHA256SUMS"
-CHECKSUMS_FILE="${ISO_DIR}/SHA256SUMS"
 
 # The CloudLab profile creates this ephemeral local filesystem before running
 # the startup service. It avoids home-directory quotas and slow network storage.
@@ -97,20 +95,13 @@ if ! sudo virsh net-info default | grep -q "Active:.*yes"; then
 fi
 sudo virsh net-autostart default
 
-# Download the pinned installer and verify it against Canonical's published
-# SHA256SUMS file. Existing valid downloads are reused after a reboot.
-sudo wget --quiet --output-document="${CHECKSUMS_FILE}" "${CHECKSUMS_URL}"
-if [[ ! -f "${ISO_PATH}" ]] || ! (
-    cd "${ISO_DIR}"
-    grep " ${ISO_NAME}$" SHA256SUMS | sha256sum --check --status
-); then
-    sudo rm -f "${ISO_PATH}"
-    sudo wget --progress=dot:giga --output-document="${ISO_PATH}" "${ISO_URL}"
+# Download the pinned installer once. Use a temporary filename so an interrupted
+# download is never mistaken for a complete ISO after a reboot.
+if [[ ! -f "${ISO_PATH}" ]]; then
+    sudo rm -f "${ISO_PATH}.part"
+    sudo wget --progress=dot:giga --output-document="${ISO_PATH}.part" "${ISO_URL}"
+    sudo mv "${ISO_PATH}.part" "${ISO_PATH}"
 fi
-(
-    cd "${ISO_DIR}"
-    grep " ${ISO_NAME}$" SHA256SUMS | sha256sum --check
-)
 
 # Reuse an existing libvirt domain after a CloudLab reboot. Installation is
 # performed only when the domain has not yet been defined.

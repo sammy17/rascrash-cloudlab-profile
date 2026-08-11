@@ -20,9 +20,8 @@ The profile creates:
 - a 60 GB ephemeral local blockstore mounted at `/local/rascrash`.
 
 The startup script installs KVM/QEMU, libvirt, `virt-install`, virt-manager,
-TigerVNC, and the host-side build dependencies. It then downloads and verifies
-Ubuntu Server 22.04.5 and performs an unattended installation of
-`rascrash-vm` with:
+TigerVNC, and the host-side build dependencies. It then downloads Ubuntu Server
+22.04.5 and performs an unattended installation of `rascrash-vm` with:
 
 - 4 vCPUs;
 - 8 GiB RAM;
