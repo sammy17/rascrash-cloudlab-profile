@@ -93,9 +93,14 @@ sudo DEBIAN_FRONTEND=noninteractive apt install -y \
     xfce4-goodies \
     tigervnc-standalone-server \
     wget \
+    git \
     build-essential \
+    bc \
     bison \
+    cpio \
+    fakeroot \
     flex \
+    rsync \
     libncurses-dev \
     libssl-dev \
     libelf-dev \
@@ -110,7 +115,8 @@ sudo DEBIAN_FRONTEND=noninteractive apt install -y \
     libvirt-daemon-system \
     libvirt-clients \
     virtinst \
-    cloud-image-utils
+    cloud-image-utils \
+    auditd
 
 # The ISO and VM disk remain on the 60 GB local CloudLab blockstore. Give each
 # interactive user access to KVM/libvirt and add a negligible ~/RASCrash symlink
