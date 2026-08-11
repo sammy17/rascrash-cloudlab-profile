@@ -29,6 +29,12 @@ TigerVNC, and the host-side build dependencies. It then downloads Ubuntu Server
 - a serial console; and
 - username and password `rascrash`.
 
+On Intel hosts, the script adds `intel_iommu=on` to GRUB and automatically
+reboots once after initial setup. AMD hosts with available IOMMU groups do not
+require this reboot. After an Intel reboot, wait for the host to return in the
+CloudLab dashboard and reconnect over SSH; the startup script resumes
+automatically.
+
 The script disables VM autostart and leaves the VM powered off. The evaluator
 must attach the assigned PCIe device before starting the guest.
 
@@ -53,6 +59,10 @@ After the host boots, connect over SSH and follow the setup log:
 ```bash
 sudo tail -f /local/rascrash/logs/setup.log
 ```
+
+An Intel host may disconnect the SSH session for its one-time IOMMU reboot.
+Reconnect after the CloudLab dashboard shows that the host is back and follow
+the same log again.
 
 Setup has reached the intended pre-passthrough state when the log contains:
 

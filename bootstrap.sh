@@ -11,6 +11,8 @@ STATE_DIR="${WORK_DIR}/state"
 ISO_DIR="${WORK_DIR}/iso"
 VM_DIR="${WORK_DIR}/vm"
 AUTOINSTALL_DIR="${WORK_DIR}/autoinstall"
+IOMMU_REBOOT_MARKER="${STATE_DIR}/iommu-reboot-requested"
+IOMMU_GRUB_CONFIG="/etc/default/grub.d/99-rascrash-iommu.cfg"
 
 VM_NAME="rascrash-vm"
 VM_VCPUS=4
@@ -46,6 +48,44 @@ exec > >(sudo tee -a "${LOG_FILE}") 2>&1
 echo "Starting RASCrash artifact setup"
 echo "UTC time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 
+IOMMU_REBOOT_REQUIRED=false
+CPU_VENDOR="$(
+    awk -F: '/^vendor_id/ {
+        value = $2
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+        print value
+        exit
+    }' /proc/cpuinfo
+)"
+
+# Intel hosts require intel_iommu=on for PCIe passthrough. AMD hosts expose
+# IOMMU support without this Intel-specific argument and do not need a reboot.
+if [[ "${CPU_VENDOR}" == "GenuineIntel" ]]; then
+    if [[ " $(</proc/cmdline) " != *" intel_iommu=on "* ]]; then
+        if [[ -f "${IOMMU_REBOOT_MARKER}" ]]; then
+            echo "ERROR: intel_iommu=on is still absent after the requested reboot" >&2
+            exit 1
+        fi
+
+        IOMMU_REBOOT_REQUIRED=true
+        echo "Intel host detected; a one-time reboot will enable intel_iommu=on"
+    elif ! compgen -G "/sys/kernel/iommu_groups/*" >/dev/null; then
+        echo "ERROR: intel_iommu=on is active but no IOMMU groups were found" >&2
+        exit 1
+    else
+        echo "Intel IOMMU is enabled and IOMMU groups are available"
+    fi
+elif [[ "${CPU_VENDOR}" == "AuthenticAMD" ]]; then
+    if ! compgen -G "/sys/kernel/iommu_groups/*" >/dev/null; then
+        echo "ERROR: AMD host has no available IOMMU groups" >&2
+        exit 1
+    fi
+    echo "AMD IOMMU groups are available; no kernel argument or reboot is needed"
+else
+    echo "ERROR: Unsupported CPU vendor: ${CPU_VENDOR:-unknown}" >&2
+    exit 1
+fi
+
 # Keep this as the first package-management operation in the startup workflow.
 sudo apt update
 sudo DEBIAN_FRONTEND=noninteractive apt install -y \
@@ -72,13 +112,14 @@ sudo DEBIAN_FRONTEND=noninteractive apt install -y \
     virtinst \
     cloud-image-utils
 
-# The ISO and VM disk remain on the 60 GB local CloudLab blockstore. These
-# symlinks consume negligible home-directory space and only make that workspace
-# available at ~/RASCrash for each interactive user.
+# The ISO and VM disk remain on the 60 GB local CloudLab blockstore. Give each
+# interactive user access to KVM/libvirt and add a negligible ~/RASCrash symlink
+# to the workspace. New group membership takes effect on the user's next login.
 while IFS=: read -r account _ uid gid _ home _; do
     if (( uid >= 1000 && uid < 65534 )) \
         && [[ "${home}" == /home/* || "${home}" == /users/* ]] \
         && [[ -d "${home}" ]]; then
+        sudo usermod -aG kvm,libvirt "${account}"
         if [[ ! -e "${home}/RASCrash" && ! -L "${home}/RASCrash" ]]; then
             sudo ln -s "${WORK_DIR}" "${home}/RASCrash"
             sudo chown -h "${account}:${gid}" "${home}/RASCrash"
@@ -193,15 +234,33 @@ if [[ "${VM_STATE}" != "shut off" ]]; then
     fi
 fi
 
+if [[ "${IOMMU_REBOOT_REQUIRED}" == true ]]; then
+    # Change GRUB only after host and VM setup succeeds. Creating the marker
+    # immediately before reboot distinguishes a completed first pass from a
+    # manually retried setup that failed earlier.
+    sudo mkdir -p /etc/default/grub.d
+    sudo tee "${IOMMU_GRUB_CONFIG}" >/dev/null <<'EOF'
+GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT:+${GRUB_CMDLINE_LINUX_DEFAULT} }intel_iommu=on"
+EOF
+    sudo update-grub
+    sudo touch "${IOMMU_REBOOT_MARKER}"
+    echo "Host setup complete; rebooting once to enable Intel IOMMU"
+    echo "Wait for the host to return in the CloudLab dashboard, then reconnect with SSH"
+    sudo sync
+    sudo systemctl reboot
+    exit 0
+fi
+
 sudo touch "${STATE_DIR}/vm-ready-for-passthrough"
 echo "VM state: $(sudo virsh domstate "${VM_NAME}" | xargs)"
+echo "Reconnect SSH so the kvm and libvirt group memberships take effect"
 echo "Next step: attach the assigned PCIe device in virt-manager; then start the VM"
 echo "RASCRASH_VM_READY_FOR_PASSTHROUGH"
 
 # TODO: Verify that the allocated node is one of the supported hardware types.
 #
-# TODO: Configure IOMMU/VFIO safely. Never detach the control-network device or
-# a disk that contains the host root filesystem.
+# TODO: Configure VFIO safely. Never detach the control-network device or a disk
+# that contains the host root filesystem.
 #
 # TODO: Validate the intended PCIe device by vendor/device ID and IOMMU group,
 # bind it to vfio-pci, and attach it to the guest.
